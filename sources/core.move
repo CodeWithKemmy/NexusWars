@@ -4,16 +4,23 @@ module nexuswars::core {
     use sui::coin::{Self, Coin};
     use sui::sui::SUI;
     use std::string::{Self, String};
-    use sui::event; // Add event module import
+    use sui::event;
+    use sui::object::{Self, ID, UID};
+    use sui::tx_context::{Self, TxContext};
 
-    // ======== Error Constants ========
-    const EInvalidAgentType: u64 = 0;
-    const EInvalidRiskProfile: u64 = 1;
-    const EInvalidEvolutionStage: u64 = 2;
-    // const EInsufficientBalance: u64 = 3;
-    const EInvalidStrategyRequirements: u64 = 4;
+    // ======== Error Enum ========
+    enum CoreError {
+        InvalidAgentType,
+        InvalidRiskProfile,
+        InvalidEvolutionStage,
+        InvalidStrategyRequirements,
+        InsufficientBalance,
+        Unauthorized,
+        MaxEvolutionReached,
+    }
 
     // ======== Core Structs ========
+    /// Represents a trading agent in the NexusWars ecosystem
     public struct TradingAgent has key, store {
         id: UID,
         genome: vector<u8>,
@@ -26,6 +33,7 @@ module nexuswars::core {
         metadata: Table<String, String>
     }
 
+    /// Defines the type and characteristics of a trading agent
     public struct AgentType has copy, drop, store {
         primary_strategy: u8,
         risk_profile: u8,
@@ -33,6 +41,7 @@ module nexuswars::core {
         time_horizon: u64
     }
 
+    /// Represents the result of a trade
     public struct TradeResult has store, drop {
         timestamp: u64,
         profit_loss: u64,
@@ -40,6 +49,7 @@ module nexuswars::core {
         market_conditions: MarketState
     }
 
+    /// Represents market data at a specific point in time
     public struct MarketData has store, drop {
         timestamp: u64,
         price: u64,
@@ -48,6 +58,7 @@ module nexuswars::core {
         additional_metrics: vector<u64>
     }
 
+    /// Represents the state of the market
     public struct MarketState has store, drop {
         volatility: u64,
         trend: u64,
@@ -55,6 +66,7 @@ module nexuswars::core {
         timestamp: u64
     }
 
+    /// Represents a legion of trading agents
     public struct Legion has key {
         id: UID,
         owner: address,
@@ -66,6 +78,7 @@ module nexuswars::core {
         deployment_history: vector<DeploymentRecord>
     }
 
+    /// Represents an achievement earned by a legion
     public struct Achievement has store, drop {
         id: u64,
         name: String,
@@ -73,6 +86,7 @@ module nexuswars::core {
         score: u64
     }
 
+    /// Represents a record of strategy deployment
     public struct DeploymentRecord has store, drop {
         timestamp: u64,
         strategy_id: ID,
@@ -80,6 +94,7 @@ module nexuswars::core {
         duration: u64
     }
 
+    /// Represents a trading strategy
     public struct Strategy has key {
         id: UID,
         creator: address,
@@ -87,9 +102,11 @@ module nexuswars::core {
         risk_level: u8,
         expected_returns: u64,
         execution_logic: vector<u8>,
-        performance_history: vector<PerformanceRecord>
+        performance_history: vector<PerformanceRecord>,
+        required_balance: u64
     }
 
+    /// Represents a performance record for a strategy
     public struct PerformanceRecord has store, drop {
         timestamp: u64,
         returns: u64,
@@ -98,28 +115,27 @@ module nexuswars::core {
     }
 
     // ======== Events ========
-    // Updated event structs to follow Sui's event pattern
-    public struct AgentCreated has copy, drop {
+    struct AgentCreated has copy, drop {
         agent_id: address,
         creator: address,
         specialization: AgentType,
         timestamp: u64
     }
 
-    public struct LegionFormed has copy, drop {
+    struct LegionFormed has copy, drop {
         legion_id: address,
         owner: address,
         initial_agent_count: u64,
         timestamp: u64
     }
 
-    public struct StrategyDeployed has copy, drop {
+    struct StrategyDeployed has copy, drop {
         strategy_id: address,
         legion_id: address,
         timestamp: u64
     }
 
-    public struct AgentEvolved has copy, drop {
+    struct AgentEvolved has copy, drop {
         agent_id: address,
         new_evolution_stage: u8,
         timestamp: u64
@@ -127,15 +143,16 @@ module nexuswars::core {
 
     // ======== Core Functions ========
     
+    /// Creates a new trading agent with the given genome and specialization
     public fun create_agent(
             genome: vector<u8>,
             specialization: AgentType,
             ctx: &mut TxContext
         ): TradingAgent {
-            assert!(specialization.risk_profile <= 100, EInvalidRiskProfile);
-            assert!(specialization.primary_strategy < 255, EInvalidAgentType);
+            assert!(specialization.risk_profile <= 100, CoreError::InvalidRiskProfile);
+            assert!(specialization.primary_strategy < 255, CoreError::InvalidAgentType);
             
-            let mut metadata = table::new<String, String>(ctx);
+            let metadata = table::new<String, String>(ctx);
             
             // Convert epoch number to string representation
             let epoch_bytes = number_to_string(tx_context::epoch(ctx));
@@ -171,8 +188,8 @@ module nexuswars::core {
             return vector[48] // ASCII '0'
         };
         
-        let mut bytes = vector::empty<u8>();
-        let mut n = num;
+        let bytes = vector::empty<u8>();
+        let n = num;
         
         while (n > 0) {
             let digit = ((n % 10) as u8) + 48; // Convert to ASCII
@@ -182,23 +199,28 @@ module nexuswars::core {
         
         // Reverse the bytes since we added digits from right to left
         let len = vector::length(&bytes);
-        let mut i = 0;
+        let i = 0;
         while (i < len / 2) {
             let j = len - i - 1;
-            let temp = *vector::borrow(&bytes, i);
-            *vector::borrow_mut(&mut bytes, i) = *vector::borrow(&bytes, j);
-            *vector::borrow_mut(&mut bytes, j) = temp;
+            let temp_i = *vector::borrow(&bytes, i);
+            let temp_j = *vector::borrow(&bytes, j);
+            *vector::borrow_mut(&mut bytes, i) = temp_j;
+            *vector::borrow_mut(&mut bytes, j) = temp_i;
             i = i + 1;
         };
         
         bytes
     }
 
+    /// Creates a new legion with the given initial agents and deposit
     public fun create_legion(
         initial_agents: vector<TradingAgent>,
         initial_deposit: Coin<SUI>,
         ctx: &mut TxContext
     ): Legion {
+        // Add access control
+        assert!(tx_context::sender(ctx) == @some_authorized_address, CoreError::Unauthorized);
+
         let treasury = coin::into_balance(initial_deposit);
         let initial_agent_count = vector::length(&initial_agents);
         
@@ -224,17 +246,17 @@ module nexuswars::core {
         legion
     }
 
+    /// Deploys a strategy for a given legion
     public fun deploy_strategy(
         legion: &mut Legion,
         strategy: &Strategy,
         ctx: &mut TxContext
     ) {
         // Check if legion has sufficient balance to deploy strategy
-
+        assert!(balance::value(&legion.treasury) >= strategy.required_balance, CoreError::InsufficientBalance);
 
         // Verify strategy requirements are met
         verify_strategy_requirements(&legion.agents, &strategy.agent_requirements);
-
         
         // Record deployment
         let deployment = DeploymentRecord {
@@ -253,12 +275,13 @@ module nexuswars::core {
         });
     }
 
+    /// Evolves an agent with a new genome
     public fun evolve_agent(
         agent: &mut TradingAgent,
         new_genome: vector<u8>,
         ctx: &mut TxContext
     ) {
-        assert!(agent.evolution_stage < 255, EInvalidEvolutionStage);
+        assert!(agent.evolution_stage < 255, CoreError::MaxEvolutionReached);
         
         agent.genome = new_genome;
         agent.evolution_stage = agent.evolution_stage + 1;
@@ -283,12 +306,12 @@ module nexuswars::core {
         agents: &vector<TradingAgent>,
         requirements: &vector<AgentType>
     ) {
-        let mut  i = 0;
+        let i = 0;
         while (i < vector::length(requirements)) {
             let req = vector::borrow(requirements, i);
             assert!(
                 has_compatible_agent(agents, req),
-                EInvalidStrategyRequirements
+                CoreError::InvalidStrategyRequirements
             );
             i = i + 1;
         }
@@ -298,7 +321,7 @@ module nexuswars::core {
         agents: &vector<TradingAgent>,
         requirement: &AgentType
     ): bool {
-        let mut i = 0;
+        let i = 0;
         while (i < vector::length(agents)) {
             let agent = vector::borrow(agents, i);
             if (is_agent_compatible(&agent.specialization, requirement)) {
@@ -319,9 +342,10 @@ module nexuswars::core {
         if (agent_type.risk_profile < requirement.risk_profile) {
             return false
         };
-        // Add more compatibility checks as needed
         true
     }
+}
+
 
     // ======== Test Functions ========
     #[test]
