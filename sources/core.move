@@ -313,25 +313,3 @@ module nexuswars::core;
         // Add more compatibility checks as needed
         true
     }
-
-    // // ======== Test Functions ========
-    // #[test]
-    // fun test_create_agent() {
-    //     let mut ctx = tx_context::dummy();
-
-    //     let agent_type = AgentType {
-    //         primary_strategy: 0,
-    //         risk_profile: 50,
-    //         market_focus: vector::empty(),
-    //         time_horizon: 86400
-    //     };
-
-    //     let agent = create_agent(
-    //         vector::empty(),
-    //         agent_type,
-    //         &mut ctx
-    //     );
-
-    //     assert!(agent.evolution_stage == 0, 0);
-    //     assert!(agent.experience == 0, 1);
-    // }
