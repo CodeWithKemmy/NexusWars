@@ -1,10 +1,11 @@
-module nexuswars::core {
-    use sui::table::{Self, Table};
+module nexuswars::core;
+
+    use std::string::{Self, String};
     use sui::balance::{Self, Balance};
     use sui::coin::{Self, Coin};
+    use sui::event;
     use sui::sui::SUI;
-    use std::string::{Self, String};
-    use sui::event; // Add event module import
+    use sui::table::{Self, Table};
 
     // ======== Error Constants ========
     const EInvalidAgentType: u64 = 0;
@@ -23,21 +24,21 @@ module nexuswars::core {
         evolution_stage: u8,
         mutation_rate: u64,
         training_data: vector<MarketData>,
-        metadata: Table<String, String>
+        metadata: Table<String, String>,
     }
 
     public struct AgentType has copy, drop, store {
         primary_strategy: u8,
         risk_profile: u8,
         market_focus: vector<u8>,
-        time_horizon: u64
+        time_horizon: u64,
     }
 
     public struct TradeResult has store, drop {
         timestamp: u64,
         profit_loss: u64,
         strategy_used: u8,
-        market_conditions: MarketState
+        market_conditions: MarketState,
     }
 
     public struct MarketData has store, drop {
@@ -45,14 +46,14 @@ module nexuswars::core {
         price: u64,
         volume: u64,
         market_type: u8,
-        additional_metrics: vector<u64>
+        additional_metrics: vector<u64>,
     }
 
     public struct MarketState has store, drop {
         volatility: u64,
         trend: u64,
         liquidity: u64,
-        timestamp: u64
+        timestamp: u64,
     }
 
     public struct Legion has key {
@@ -63,21 +64,21 @@ module nexuswars::core {
         reputation: u64,
         achievements: vector<Achievement>,
         alliance_memberships: vector<ID>,
-        deployment_history: vector<DeploymentRecord>
+        deployment_history: vector<DeploymentRecord>,
     }
 
     public struct Achievement has store, drop {
         id: u64,
         name: String,
         timestamp: u64,
-        score: u64
+        score: u64,
     }
 
     public struct DeploymentRecord has store, drop {
         timestamp: u64,
         strategy_id: ID,
         performance: u64,
-        duration: u64
+        duration: u64,
     }
 
     public struct Strategy has key {
@@ -87,14 +88,14 @@ module nexuswars::core {
         risk_level: u8,
         expected_returns: u64,
         execution_logic: vector<u8>,
-        performance_history: vector<PerformanceRecord>
+        performance_history: vector<PerformanceRecord>,
     }
 
     public struct PerformanceRecord has store, drop {
         timestamp: u64,
         returns: u64,
         risk_metrics: vector<u64>,
-        market_conditions: MarketState
+        market_conditions: MarketState,
     }
 
     // ======== Events ========
@@ -103,83 +104,93 @@ module nexuswars::core {
         agent_id: address,
         creator: address,
         specialization: AgentType,
-        timestamp: u64
+        timestamp: u64,
     }
 
     public struct LegionFormed has copy, drop {
         legion_id: address,
         owner: address,
         initial_agent_count: u64,
-        timestamp: u64
+        timestamp: u64,
     }
 
     public struct StrategyDeployed has copy, drop {
         strategy_id: address,
         legion_id: address,
-        timestamp: u64
+        timestamp: u64,
     }
 
     public struct AgentEvolved has copy, drop {
         agent_id: address,
         new_evolution_stage: u8,
-        timestamp: u64
+        timestamp: u64,
     }
 
     // ======== Core Functions ========
-    
+
     public fun create_agent(
-            genome: vector<u8>,
-            specialization: AgentType,
-            ctx: &mut TxContext
-        ): TradingAgent {
-            assert!(specialization.risk_profile <= 100, EInvalidRiskProfile);
-            assert!(specialization.primary_strategy < 255, EInvalidAgentType);
-            
-            let mut metadata = table::new<String, String>(ctx);
-            
-            // Convert epoch number to string representation
-            let epoch_bytes = number_to_string(tx_context::epoch(ctx));
-            table::add(&mut metadata, string::utf8(b"creation_time"), 
-                string::utf8(epoch_bytes));
+        genome: vector<u8>,
+        primary_strategy: u8,
+        risk_profile: u8,
+        market_focus: vector<u8>,
+        time_horizon: u64,
+        ctx: &mut TxContext,
+    ): TradingAgent {
 
-            let agent = TradingAgent {
-                id: object::new(ctx),
-                genome,
-                performance_history: vector::empty(),
-                specialization,
-                experience: 0,
-                evolution_stage: 0,
-                mutation_rate: 5,
-                training_data: vector::empty(),
-                metadata
-            };
+        let specialization = AgentType {
+            primary_strategy,
+            risk_profile,
+            market_focus,
+            time_horizon
+        };
 
-            // Emit agent creation event
-            event::emit(AgentCreated {
-                agent_id: object::uid_to_address(&agent.id),
-                creator: tx_context::sender(ctx),
-                specialization: agent.specialization,
-                timestamp: tx_context::epoch(ctx)
-            });
+        assert!(specialization.risk_profile <= 100, EInvalidRiskProfile);
+        assert!(specialization.primary_strategy < 255, EInvalidAgentType);
 
-            agent
-        }
+        let mut metadata = table::new<String, String>(ctx);
+
+        // Convert epoch number to string representation
+        let epoch_bytes = number_to_string(tx_context::epoch(ctx));
+        table::add(&mut metadata, string::utf8(b"creation_time"), string::utf8(epoch_bytes));
+
+        let agent = TradingAgent {
+            id: object::new(ctx),
+            genome,
+            performance_history: vector::empty(),
+            specialization,
+            experience: 0,
+            evolution_stage: 0,
+            mutation_rate: 5,
+            training_data: vector::empty(),
+            metadata,
+        };
+
+        // Emit agent creation event
+        event::emit(AgentCreated {
+            agent_id: object::uid_to_address(&agent.id),
+            creator: tx_context::sender(ctx),
+            specialization: agent.specialization,
+            timestamp: tx_context::epoch(ctx),
+        });
+
+        agent
+    }
 
     // Helper function to convert a number to its string representation as bytes
     fun number_to_string(num: u64): vector<u8> {
         if (num == 0) {
             return vector[48] // ASCII '0'
         };
-        
+
         let mut bytes = vector::empty<u8>();
         let mut n = num;
-        
+
         while (n > 0) {
             let digit = ((n % 10) as u8) + 48; // Convert to ASCII
             vector::push_back(&mut bytes, digit);
             n = n / 10;
         };
-        
+
         // Reverse the bytes since we added digits from right to left
         let len = vector::length(&bytes);
         let mut i = 0;
@@ -190,18 +201,18 @@ module nexuswars::core {
             *vector::borrow_mut(&mut bytes, j) = temp;
             i = i + 1;
         };
-        
+
         bytes
     }
 
     public fun create_legion(
         initial_agents: vector<TradingAgent>,
         initial_deposit: Coin<SUI>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): Legion {
         let treasury = coin::into_balance(initial_deposit);
         let initial_agent_count = vector::length(&initial_agents);
-        
+
         let legion = Legion {
             id: object::new(ctx),
             owner: tx_context::sender(ctx),
@@ -210,7 +221,7 @@ module nexuswars::core {
             reputation: 0,
             achievements: vector::empty(),
             alliance_memberships: vector::empty(),
-            deployment_history: vector::empty()
+            deployment_history: vector::empty(),
         };
 
         // Emit legion creation event with updated event structure
@@ -218,17 +229,13 @@ module nexuswars::core {
             legion_id: object::uid_to_address(&legion.id),
             owner: tx_context::sender(ctx),
             initial_agent_count,
-            timestamp: tx_context::epoch(ctx)
+            timestamp: tx_context::epoch(ctx),
         });
 
         legion
     }
 
-    public fun deploy_strategy(
-        legion: &mut Legion,
-        strategy: &Strategy,
-        ctx: &mut TxContext
-    ) {
+    public fun deploy_strategy(legion: &mut Legion, strategy: &Strategy, ctx: &mut TxContext) {
         // Check if legion has sufficient balance to deploy strategy
 
         // Verify strategy requirements are met
@@ -239,7 +246,7 @@ module nexuswars::core {
             timestamp: tx_context::epoch(ctx),
             strategy_id: object::uid_to_inner(&strategy.id),
             performance: 0,
-            duration: 0
+            duration: 0,
         };
         vector::push_back(&mut legion.deployment_history, deployment);
 
@@ -247,55 +254,40 @@ module nexuswars::core {
         event::emit(StrategyDeployed {
             strategy_id: object::uid_to_address(&strategy.id),
             legion_id: object::uid_to_address(&legion.id),
-            timestamp: tx_context::epoch(ctx)
+            timestamp: tx_context::epoch(ctx),
         });
     }
 
-    public fun evolve_agent(
-        agent: &mut TradingAgent,
-        new_genome: vector<u8>,
-        ctx: &mut TxContext
-    ) {
+    public fun evolve_agent(agent: &mut TradingAgent, new_genome: vector<u8>, ctx: &mut TxContext) {
         assert!(agent.evolution_stage < 255, EInvalidEvolutionStage);
-        
+
         agent.genome = new_genome;
         agent.evolution_stage = agent.evolution_stage + 1;
-        
+
         // Convert epoch number to string representation for metadata
         let epoch_bytes = number_to_string(tx_context::epoch(ctx));
-        table::add(&mut agent.metadata, 
-            string::utf8(b"last_evolution"), 
-            string::utf8(epoch_bytes));
+        table::add(&mut agent.metadata, string::utf8(b"last_evolution"), string::utf8(epoch_bytes));
 
         // Emit agent evolution event
         event::emit(AgentEvolved {
             agent_id: object::uid_to_address(&agent.id),
             new_evolution_stage: agent.evolution_stage,
-            timestamp: tx_context::epoch(ctx)
+            timestamp: tx_context::epoch(ctx),
         });
     }
 
     // ======== Helper Functions ========
-    
-    fun verify_strategy_requirements(
-        agents: &vector<TradingAgent>,
-        requirements: &vector<AgentType>
-    ) {
-        let mut  i = 0;
+
+    fun verify_strategy_requirements(agents: &vector<TradingAgent>, requirements: &vector<AgentType>) {
+        let mut i = 0;
         while (i < vector::length(requirements)) {
             let req = vector::borrow(requirements, i);
-            assert!(
-                has_compatible_agent(agents, req),
-                EInvalidStrategyRequirements
-            );
+            assert!(has_compatible_agent(agents, req), EInvalidStrategyRequirements);
             i = i + 1;
         }
     }
 
-    fun has_compatible_agent(
-        agents: &vector<TradingAgent>,
-        requirement: &AgentType
-    ): bool {
+    fun has_compatible_agent(agents: &vector<TradingAgent>, requirement: &AgentType): bool {
         let mut i = 0;
         while (i < vector::length(agents)) {
             let agent = vector::borrow(agents, i);
@@ -307,10 +299,7 @@ module nexuswars::core {
         false
     }
 
-    fun is_agent_compatible(
-        agent_type: &AgentType,
-        requirement: &AgentType
-    ): bool {
+    fun is_agent_compatible(agent_type: &AgentType, requirement: &AgentType): bool {
         if (agent_type.primary_strategy != requirement.primary_strategy) {
             return false
         };
@@ -325,7 +314,7 @@ module nexuswars::core {
     // #[test]
     // fun test_create_agent() {
     //     let mut ctx = tx_context::dummy();
-        
+
     //     let agent_type = AgentType {
     //         primary_strategy: 0,
     //         risk_profile: 50,
@@ -342,4 +331,3 @@ module nexuswars::core {
     //     assert!(agent.evolution_stage == 0, 0);
     //     assert!(agent.experience == 0, 1);
     // }
-}
