@@ -127,7 +127,7 @@ module nexuswars::core;
     }
 
     // ======== Core Functions ========
-
+   
     public fun create_agent(
         genome: vector<u8>,
         primary_strategy: u8,
@@ -233,6 +233,10 @@ module nexuswars::core;
         });
 
         legion
+    }
+
+    public fun share_legion(self: Legion) {
+        transfer::share_object(self);
     }
 
     public fun deploy_strategy(legion: &mut Legion, strategy: &Strategy, ctx: &mut TxContext) {
